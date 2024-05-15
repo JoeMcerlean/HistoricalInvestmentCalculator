@@ -1,33 +1,36 @@
 from django.shortcuts import render
 from rest_framework.views import APIView
 from rest_framework.response import Response
-import investiny
-
-def get_investing_id(ticker):
-    try:
-        search_results = investiny.search_assets(query=ticker, limit=1, type="Stock", exchange="NASDAQ")
-        if search_results:
-            matches = [item for item in search_results]
-            investing_id = int(matches[0]["ticker"])
-            return investing_id
-        else:
-            raise ValueError(f"No results found for ticker: {ticker}")
-    except Exception as e:
-        raise ValueError(f"Error searching for ticker: {ticker}. {str(e)}")
-
+from datetime import datetime
+import yfinance
+import yfinance.scrapers
+import yfinance.scrapers.history
+import json
 
 class StockDataView(APIView):
     def get(self, request, format=None):
-        ticker = request.query_params.get('ticker')  # Get the ticker from the query parameters, default to 'AAPL'
-        print(f"Request String: {request}")  # Output the request string
-       
+        ticker = request.query_params.get('ticker')
+        start_date = request.query_params.get('startdate')
+        end_date = request.query_params.get('enddate')
+
+        if not start_date or not end_date:
+            return Response({'error': 'Both startdate and enddate parameters are required'}, status=400)
+
         try:
-            stock_data = investiny.historical_data(
-                investing_id=get_investing_id(ticker),
-                from_date='01/01/2000',
-                to_date='01/01/2024',
-                interval='M'
-            )
-            return Response(stock_data)
+            # Download stock data using yfinance
+            stock_data = yfinance.download(ticker, start=start_date, end=end_date)
+
+            # Extract dates and close prices from the stock data
+            dates = stock_data.index.strftime('%Y-%m-%d').tolist()  # Convert DatetimeIndex to list of date strings
+            close_prices = stock_data['Close'].tolist()  # Convert close prices to list
+
+            # Create a dictionary with dates and close prices
+            data_map = {'dates': dates, 'close_prices': close_prices}
+
+            # Serialize the dictionary to JSON
+            json_data = json.dumps(data_map)
+            print("API Response:", json_data)
+            # Return JSON response
+            return Response(json_data)
         except Exception as e:
             return Response({'error': str(e)}, status=500)
